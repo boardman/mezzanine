@@ -20,8 +20,16 @@ def register_setting(name="", label="", editable=False, description="",
     Registers a setting that can be edited via the admin.
     """
     # Check project's settings module for overridden default.
-    if append and name in registry:
-        registry[name]["default"] += default
+    if name in registry:
+        # Changing here to allow for register_setting
+        # being called multiple times.  Last call, being the
+        # override wins
+        if append:
+            registry[name]["default"] += default
+        if description:
+            registry[name]["description"] += description
+        registry[name]["editable"] = editable
+        registry[name]["choices"] = choices
     else:
         default = getattr(django_settings, name, default)
         if isinstance(default, Promise):
