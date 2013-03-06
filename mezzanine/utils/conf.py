@@ -6,6 +6,20 @@ from django.conf.global_settings import STATICFILES_FINDERS
 from django.template.loader import add_to_builtins
 
 
+class SitesAllowedHosts(object):
+    """
+    This is a fallback for Django 1.5's ALLOWED_HOSTS setting
+    which is required when DEBUG is False. It looks up the
+    ``Site`` model and uses any domains added to it, the
+    first time the setting is accessed.
+    """
+    def __iter__(self):
+        if getattr(self, "_hosts", None) is None:
+            from django.contrib.sites.models import Site
+            self._hosts = [s.domain.split(":")[0] for s in Site.objects.all()]
+        return iter(self._hosts)
+
+
 def set_dynamic_settings(s):
     """
     Called at the end of the project's settings module, and is passed
@@ -28,14 +42,21 @@ def set_dynamic_settings(s):
 
     s["TEMPLATE_DEBUG"] = s.get("TEMPLATE_DEBUG", s.get("DEBUG", False))
     add_to_builtins("mezzanine.template.loader_tags")
+
+    if not s.get("ALLOWED_HOSTS", []):
+        from warnings import warn
+        warn("You haven't defined the ALLOWED_HOSTS settings, which "
+             "Django 1.5 requires. Will fall back to the domains "
+             "configured as sites.")
+        s["ALLOWED_HOSTS"] = SitesAllowedHosts()
+
     # Define some settings based on management command being run.
     management_command = sys.argv[1] if len(sys.argv) > 1 else ""
     # Some kind of testing is running via test or testserver.
     s["TESTING"] = management_command.startswith("test")
     # Some kind of development server is running via runserver,
     # runserver_plus or harvest (lettuce)
-    s["DEV_SERVER"] = management_command.startswith("runserver") or \
-                      management_command == "harvest"
+    s["DEV_SERVER"] = management_command.startswith(("runserver", "harvest"))
     # Change tuple settings to lists for easier manipulation.
     s["INSTALLED_APPS"] = list(s["INSTALLED_APPS"])
     s["MIDDLEWARE_CLASSES"] = list(s["MIDDLEWARE_CLASSES"])
@@ -53,6 +74,22 @@ def set_dynamic_settings(s):
     if s["TESTING"]:
         # Enable accounts when testing so the URLs exist.
         append("INSTALLED_APPS", "mezzanine.accounts")
+
+        # Following bits are work-arounds for some assumptions that
+        # Django 1.5's tests make.
+
+        # contrib.auth tests fail without its own auth backend installed.
+        s["AUTHENTICATION_BACKENDS"] = list(s["AUTHENTICATION_BACKENDS"])
+        append("AUTHENTICATION_BACKENDS",
+               "django.contrib.auth.backends.ModelBackend")
+        s["AUTHENTICATION_BACKENDS"] = tuple(s["AUTHENTICATION_BACKENDS"])
+
+        # Tests in contrib.redirects simply don't work with a
+        # catch-all urlpattern such as Mezzanine's pages app.
+        remove("INSTALLED_APPS", "django.contrib.redirects")
+        remove("MIDDLEWARE_CLASSES",
+            "django.contrib.redirects.middleware.RedirectFallbackMiddleware")
+
     else:
         # Setup for optional apps.
         optional = list(s.get("OPTIONAL_APPS", []))
@@ -71,8 +108,20 @@ def set_dynamic_settings(s):
     if "debug_toolbar" in s["INSTALLED_APPS"]:
         debug_mw = "debug_toolbar.middleware.DebugToolbarMiddleware"
         prepend("MIDDLEWARE_CLASSES", debug_mw)
+    # If compressor installed, ensure it's configured and make
+    # Mezzanine's settings available to its offline context,
+    # since jQuery is configured via a setting.
     if "compressor" in s["INSTALLED_APPS"]:
         append("STATICFILES_FINDERS", "compressor.finders.CompressorFinder")
+        s.setdefault("COMPRESS_OFFLINE_CONTEXT", {
+            "MEDIA_URL": s.get("MEDIA_URL", ""),
+            "STATIC_URL": s.get("STATIC_URL", ""),
+        })
+
+        def mezzanine_settings():
+            from mezzanine.conf import settings
+            return settings
+        s["COMPRESS_OFFLINE_CONTEXT"]["settings"] = mezzanine_settings
 
     # Ensure the Mezzanine auth backend is enabled if
     # mezzanine.accounts is being used.

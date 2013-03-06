@@ -3,6 +3,7 @@ from operator import ior, iand
 from string import punctuation
 
 from django.db.models import Manager, Q, CharField, TextField, get_models
+from django.db.models.manager import ManagerDescriptor
 from django.db.models.query import QuerySet
 from django.contrib.sites.managers import CurrentSiteManager as DjangoCSM
 
@@ -102,7 +103,7 @@ class SearchableQuerySet(QuerySet):
                                        .split('"')
         # Strip punctuation other than modifiers from terms and create
         # terms list, first from quoted terms and then remaining words.
-        terms = [("" if t[0] not in "+-" else t[0]) + t.strip(punctuation)
+        terms = [("" if t[0:1] not in "+-" else t[0:1]) + t.strip(punctuation)
             for t in terms[1::2] + "".join(terms[::2]).split()]
         # Remove stop words from terms that aren't quoted or use
         # modifiers, since words with these are an explicit part of
@@ -111,7 +112,7 @@ class SearchableQuerySet(QuerySet):
         terms_no_stopwords = [t for t in terms if t.lower() not in
             settings.STOP_WORDS]
         get_positive_terms = lambda terms: [t.lower().strip(punctuation)
-            for t in terms if t[0] != "-"]
+            for t in terms if t[0:1] != "-"]
         positive_terms = get_positive_terms(terms_no_stopwords)
         if positive_terms:
             terms = terms_no_stopwords
@@ -128,11 +129,11 @@ class SearchableQuerySet(QuerySet):
 
         # Create the queryset combining each set of terms.
         excluded = [reduce(iand, [~Q(**{"%s__icontains" % f: t[1:]}) for f in
-            search_fields.keys()]) for t in terms if t[0] == "-"]
+            search_fields.keys()]) for t in terms if t[0:1] == "-"]
         required = [reduce(ior, [Q(**{"%s__icontains" % f: t[1:]}) for f in
-            search_fields.keys()]) for t in terms if t[0] == "+"]
+            search_fields.keys()]) for t in terms if t[0:1] == "+"]
         optional = [reduce(ior, [Q(**{"%s__icontains" % f: t}) for f in
-            search_fields.keys()]) for t in terms if t[0] not in "+-"]
+            search_fields.keys()]) for t in terms if t[0:1] not in "+-"]
         queryset = self
         if excluded:
             queryset = queryset.filter(reduce(iand, excluded))
@@ -197,6 +198,15 @@ class SearchableManager(Manager):
         search_fields = self._search_fields
         return SearchableQuerySet(self.model, search_fields=search_fields)
 
+    def contribute_to_class(self, model, name):
+        """
+        Django 1.5 explicitly prevents managers being accessed from
+        abstract classes, which is behaviour the search API has relied
+        on for years. Here we reinstate it.
+        """
+        super(SearchableManager, self).contribute_to_class(model, name)
+        setattr(model, name, ManagerDescriptor(self))
+
     def search(self, *args, **kwargs):
         """
         Proxy to queryset's search method for the manager's model and
@@ -234,6 +244,10 @@ class CurrentSiteManager(DjangoCSM):
     management commands with the ``--site`` arg, finally falling back
     to ``settings.SITE_ID`` if none of those match a site.
     """
+    def __init__(self, field_name=None, *args, **kwargs):
+        super(DjangoCSM, self).__init__(*args, **kwargs)
+        self.__field_name = field_name
+        self.__is_validated = False
 
     def get_query_set(self):
         if not self.__is_validated:

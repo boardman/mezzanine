@@ -1,6 +1,5 @@
 
 from django.contrib.auth import authenticate
-from django.contrib.auth.models import User
 from django.db.models import Q
 from django import forms
 from django.utils.translation import ugettext_lazy as _
@@ -8,7 +7,11 @@ from django.utils.translation import ugettext_lazy as _
 from mezzanine.accounts import get_profile_model, get_profile_user_fieldname
 from mezzanine.conf import settings
 from mezzanine.core.forms import Html5Mixin
+from mezzanine.utils.models import get_user_model
 from mezzanine.utils.urls import slugify
+
+
+User = get_user_model()
 
 
 class LoginForm(Html5Mixin, forms.Form):
@@ -24,7 +27,9 @@ class LoginForm(Html5Mixin, forms.Form):
         Authenticate the given username/email and password. If the fields
         are valid, store the authenticated user for returning via save().
         """
-        self._user = authenticate(**self.cleaned_data)
+        username = self.cleaned_data.get("username")
+        password = self.cleaned_data.get("password")
+        self._user = authenticate(username=username, password=password)
         if self._user is None:
             raise forms.ValidationError(
                              _("Invalid username/email and password"))
@@ -129,8 +134,8 @@ class ProfileForm(Html5Mixin, forms.ModelForm):
             if password1 != password2:
                 errors.append(_("Passwords do not match"))
             if len(password1) < settings.ACCOUNTS_MIN_PASSWORD_LENGTH:
-                errors.append(_("Password must be at least %s characters" %
-                              settings.ACCOUNTS_MIN_PASSWORD_LENGTH))
+                errors.append(_("Password must be at least %s characters") %
+                              settings.ACCOUNTS_MIN_PASSWORD_LENGTH)
             if errors:
                 self._errors["password1"] = self.error_class(errors)
         return password2
@@ -159,7 +164,8 @@ class ProfileForm(Html5Mixin, forms.ModelForm):
         # Save profile model.
         if self._has_profile:
             profile = user.get_profile()
-            ProfileFieldsForm(self.data, instance=profile).save()
+            profile_fields_form = self.get_profile_fields_form()
+            profile_fields_form(self.data, self.files, instance=profile).save()
 
         if self._signup:
             settings.use_editable()
@@ -170,6 +176,9 @@ class ProfileForm(Html5Mixin, forms.ModelForm):
                 user = authenticate(username=user.username,
                                     password=password, is_active=True)
         return user
+
+    def get_profile_fields_form(self):
+        return ProfileFieldsForm
 
 
 class PasswordResetForm(Html5Mixin, forms.Form):

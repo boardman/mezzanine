@@ -1,4 +1,3 @@
-
 from django.db import models
 from django.utils.translation import ugettext_lazy as _
 
@@ -6,7 +5,7 @@ from mezzanine.conf import settings
 from mezzanine.core.fields import FileField
 from mezzanine.core.models import Displayable, Ownable, RichText, Slugged
 from mezzanine.generic.fields import CommentsField, RatingField
-from mezzanine.utils.models import AdminThumbMixin
+from mezzanine.utils.models import AdminThumbMixin, upload_to
 
 
 class BlogPost(Displayable, Ownable, RichText, AdminThumbMixin):
@@ -22,8 +21,8 @@ class BlogPost(Displayable, Ownable, RichText, AdminThumbMixin):
     comments = CommentsField(verbose_name=_("Comments"))
     rating = RatingField(verbose_name=_("Rating"))
     featured_image = FileField(verbose_name=_("Featured Image"),
-                               upload_to="blog", format="Image",
-                               max_length=255, null=True, blank=True)
+        upload_to=upload_to("blog.BlogPost.featured_image", "blog"),
+        format="Image", max_length=255, null=True, blank=True)
     related_posts = models.ManyToManyField("self",
                                  verbose_name=_("Related posts"), blank=True)
 
@@ -63,7 +62,12 @@ class BlogPost(Displayable, Ownable, RichText, AdminThumbMixin):
         return getattr(self, "_categories", self.categories.all())
 
     def keyword_list(self):
-        return getattr(self, "_keywords", self.keywords.all())
+        try:
+            return self._keywords
+        except AttributeError:
+            keywords = [k.keyword for k in self.keywords.all()]
+            setattr(self, "_keywords", keywords)
+            return self._keywords
 
 
 class BlogCategory(Slugged):
@@ -74,7 +78,8 @@ class BlogCategory(Slugged):
     class Meta:
         verbose_name = _("Blog Category")
         verbose_name_plural = _("Blog Categories")
+        ordering = ("title",)
 
     @models.permalink
     def get_absolute_url(self):
-        return ("blog_post_list_category", (), {"slug": self.slug})
+        return ("blog_post_list_category", (), {"category": self.slug})

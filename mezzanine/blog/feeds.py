@@ -1,11 +1,9 @@
-
 try:
     # Django <= 1.3
     from django.contrib.syndication.feeds import Feed
 except ImportError:
     # Django >= 1.4
     from django.contrib.syndication.views import Feed
-from django.contrib.auth.models import User
 from django.core.urlresolvers import reverse
 from django.shortcuts import get_object_or_404
 from django.utils.feedgenerator import Atom1Feed
@@ -16,6 +14,9 @@ from mezzanine.blog.models import BlogPost, BlogCategory
 from mezzanine.generic.models import Keyword
 from mezzanine.pages.models import Page
 from mezzanine.conf import settings
+from mezzanine.utils.models import get_user_model
+
+User = get_user_model()
 
 
 class PostsRSS(Feed):
@@ -52,7 +53,7 @@ class PostsRSS(Feed):
 
     def get_feed(self, *args, **kwargs):
         # Django 1.3 author/category/tag filtering.
-        if VERSION < (1, 4):
+        if VERSION < (1, 4) and args[0]:
             attr, value = args[0].split("/", 1)
             setattr(self, attr, value)
         return super(PostsRSS, self).get_feed(*args, **kwargs)
@@ -73,6 +74,9 @@ class PostsRSS(Feed):
         if self.username:
             author = get_object_or_404(User, username=self.username)
             blog_posts = blog_posts.filter(user=author)
+        limit = settings.BLOG_RSS_LIMIT
+        if limit is not None:
+            blog_posts = blog_posts[:settings.BLOG_RSS_LIMIT]
         return blog_posts
 
     def item_description(self, item):

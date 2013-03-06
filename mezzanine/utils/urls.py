@@ -2,9 +2,11 @@
 import re
 import unicodedata
 
-from django.core.urlresolvers import resolve, reverse, NoReverseMatch
+from django.core.urlresolvers import resolve, reverse, NoReverseMatch, \
+    get_script_prefix
 from django.shortcuts import redirect
 from django.utils.encoding import smart_unicode
+from django.utils import translation
 
 from mezzanine.conf import settings
 from mezzanine.utils.importing import import_dotted_path
@@ -28,7 +30,10 @@ def home_slug():
     is the definitive source of the ``url`` field defined for an
     editable homepage object.
     """
+    prefix = get_script_prefix()
     slug = reverse("home")
+    if slug.startswith(prefix):
+        slug = '/' + slug[len(prefix):]
     try:
         return resolve(slug).kwargs["slug"]
     except KeyError:
@@ -50,7 +55,7 @@ def slugify_unicode(s):
     Adopted from https://github.com/mozilla/unicode-slugify/
     """
     chars = []
-    for char in smart_unicode(s):
+    for char in unicode(smart_unicode(s)):
         cat = unicodedata.category(char)[0]
         if cat in "LN" or char in "-_~":
             chars.append(char)
@@ -82,10 +87,20 @@ def login_redirect(request):
 def path_to_slug(path):
     """
     Removes everything from the given URL path, including
-    ``PAGES_SLUG`` if it is set, returning a slug that would match a
-    ``Page`` instance's slug.
+    language code and ``PAGES_SLUG`` if any is set, returning
+    a slug that would match a ``Page`` instance's slug.
     """
     from mezzanine.urls import PAGES_SLUG
-    for prefix in (settings.SITE_PREFIX, PAGES_SLUG):
-        path = path.strip("/").replace(prefix, "", 1)
-    return path or "/"
+
+    # If i18n is disabled Django uses a fake translation object,
+    # returning None for every path.
+    try:
+        lang_code = translation.get_language_from_path(path)
+    except AttributeError:
+        lang_code = None
+
+    for prefix in (lang_code, settings.SITE_PREFIX, PAGES_SLUG):
+        if prefix:
+            path = path.replace(prefix, "", 1)
+
+    return path.strip("/") or "/"

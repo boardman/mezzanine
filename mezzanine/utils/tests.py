@@ -37,6 +37,12 @@ IGNORE_ERRORS = (
     "continuation line",
     "closing bracket does not match",
 
+    # Jython compatiblity
+    "redefinition of unused 'Image",
+
+    # Django 1.5 custom user compatibility
+    "redefinition of unused 'get_user_model",
+
 )
 
 

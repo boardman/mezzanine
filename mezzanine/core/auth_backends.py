@@ -1,9 +1,11 @@
-
 from django.contrib.auth.backends import ModelBackend
-from django.contrib.auth.models import User
 from django.contrib.auth.tokens import default_token_generator
 from django.db.models import Q
 from django.utils.http import base36_to_int
+
+from mezzanine.utils.models import get_user_model
+
+User = get_user_model()
 
 
 class MezzanineBackend(ModelBackend):
@@ -25,7 +27,7 @@ class MezzanineBackend(ModelBackend):
             username = kwargs.pop("username", None)
             if username:
                 username_or_email = Q(username=username) | Q(email=username)
-                password = kwargs.pop("password")
+                password = kwargs.pop("password", None)
                 try:
                     user = User.objects.get(username_or_email, **kwargs)
                 except User.DoesNotExist:
